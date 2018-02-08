@@ -7,12 +7,13 @@ apply on these files
 import json
 import re
 import os
+import io
 
-# try:
-#     to_unicode = unicode
-# except NameError:
-#     to_unicode = str
-# PYTHONIOENCODING='utf-8'
+try:
+    to_unicode = unicode
+except NameError:
+    to_unicode = str
+PYTHONIOENCODING='utf-8'
 
 # function to solve the problem of duplicated key ("item") in json files
 def join_duplicate_keys(ordered_pairs):
@@ -109,7 +110,7 @@ def pretty_json(s, step_size=4, multi_line_strings=False, advanced_parse=False, 
             out += c
         elif in_marks:
             # We are in speech marks
-            if c == in_marks or (not multi_line_strings and c in ['\n', '\r']):
+            if c == in_marks or (not multi_line_strings and c in ['', '\r']):
                 # but we just got to the end of them
                 in_marks = False
             if c not in ["\x1D"]:
@@ -123,12 +124,12 @@ def pretty_json(s, step_size=4, multi_line_strings=False, advanced_parse=False, 
             # Increase step and add new line
             step += step_size
             out += c
-            out += '\n'
+            out += ''
             out += step_char * step
         elif c in ['}', ']']:
             # Decrease step and add new line
             step -= step_size
-            out += '\n'
+            out += ''
             out += step_char * step
             out += c
         elif c in [':']:
@@ -138,9 +139,9 @@ def pretty_json(s, step_size=4, multi_line_strings=False, advanced_parse=False, 
         elif c in [',']:
             # Follow with a new line
             out += c
-            out += '\n'
+            out += ''
             out += step_char * step
-        elif c in [' ', '\n', '\r', '\t', '\x1D']:
+        elif c in [' ', '', '\r', '\t', '\x1D']:
             #Ignore this character
             pass
         else:
@@ -166,9 +167,9 @@ class AddVerifiedNodule:
         for original_file in self.original_files:
             # read in the original json file
             # original_filename = self.original_path + self.filename + self.original_extension
-            original_json = json.loads(open(original_file).read(), object_pairs_hook=join_duplicate_keys)
+            original_json = json.loads(open(self.original_path + original_file).read(), object_pairs_hook=join_duplicate_keys)
 
-            #if it is a positive nodule, it won't have verified info, add verified info for the ground truth so that we
+            # if it is a positive nodule, it won't have verified info, add verified info for the ground truth so that we
             # can apply general json parser on the ground truth
             for i in range(len(original_json["Nodules"]["item"])):
                 if "VerifiedNodule" not in original_json["Nodules"]["item"][i]:
@@ -179,19 +180,18 @@ class AddVerifiedNodule:
                                                                              "false" , "Calc": "false"}
 
             # output to new json files
-            target_filename = self.target_path + original_file + self.target_extension
-            target_json = pretty_json(json.dumps(DuplicateDict(original_json), ensure_ascii=False).encode('utf-8'))
-            with open(target_filename, 'w', encoding='utf-8') as f:
-                f.write(target_json)
-                f.close()
-            print(self.filename + 'done')
+            target_filename = self.target_path + original_file[:-5] + self.target_extension
+            # target_json = pretty_json(json.dumps(DuplicateDict(original_json), ensure_ascii=False).encode('utf-8'))
+            with io.open(target_filename, 'w', encoding='utf8') as outfile:
+                str_ = json.dumps(DuplicateDict(original_json), indent=4, sort_keys=True, separators=(',', ': '), ensure_ascii=False)
+                outfile.write(to_unicode(str_))
 
 
 if __name__ == "__main__":
-    original_path = ""
-    target_path = ""
-    original_extension = ""
-    target_extension = ""
+    original_path = ".\\label\\"
+    target_path = ".\\label\\"
+    original_extension = ".json"
+    target_extension = "_new.json"
     test = AddVerifiedNodule(original_path, target_path, original_extension, target_extension)
     test.addVerified()
 # # read in the original ground truth file
