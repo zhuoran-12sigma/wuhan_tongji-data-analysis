@@ -4,8 +4,9 @@
 
 import json
 import sys
-import numpy as np
-import os
+
+if sys.version_info[0] == 2:
+    from io import open
 
 platform = sys.platform
 if platform.startswith('win'):
@@ -32,13 +33,13 @@ def join_duplicate_keys(ordered_pairs):
 # Nodule class is used for storing the info of each nodules
 # _Verified indicates whether a verifiedNodule section exists for the nodule
 class Nodule(object):
-    def __init__(self, object, diameterScale):
+    def __init__(self, object, diameterScale, otherkeysNodule, otherkeysVerify):
         self._node = object
         self._diameterScale = diameterScale
         self._label = object['Label']
         self._maligScore = object['OrigDetMaligScore']
         self._detScore = object['OrigDetScore']
-        self._Radius = object['Radius']
+        self._AveDiameter = round(float(object['Radius'])*2,3)
         self._Center = [float(object['OrigDetCenter0']), float(object['OrigDetCenter1']), float(object['OrigDetCenter2'])]
         self._SegmentationDimX = float(object['SegmentationDimX'])
         self._SegmentationDimY = float(object['SegmentationDimY'])
@@ -47,9 +48,18 @@ class Nodule(object):
         self._OrigDetScaleInVoxel2 = float(object['OrigDetScaleInVoxel2'])
         self._NoduleType = int(object['NoduleType'])
         self._Cal = object['IsCalcNodule']
+        self._MaxDiameter = round(float(object["EllipsoidRadius2"])*2,3)
+        self._Volume = round(float(object["Volume"]),3)
+        self._AveHU = round(float(object["HUAve"]),3)
+        self._otherKeysNodule = otherkeysNodule
+        self._otherKeysVerify = otherkeysVerify
+        self._otherDict = {}
+        for k in self._otherKeysNodule:
+            self._otherDict[k] = object[k]
+
         self._Verified = 'VerifiedNodule' in object
         if self._Verified:
-            self._VerifiedNodule = VerifiedNodule(object['VerifiedNodule'])
+            self._VerifiedNodule = VerifiedNodule(object['VerifiedNodule'], self._otherKeysVerify)
         self._MatchPair = []
     def getTypefromNodule(self):
         Solid, p_GGO, m_GGO, Calc, Solid_Calc, m_GGO_Calc= 'false', 'false', 'false', 'false', 'false', 'false'
@@ -71,6 +81,9 @@ class Nodule(object):
         return {'Solid':Solid, 'p_GGO':p_GGO, 'm_GGO':m_GGO, 'Calc':Calc, \
                 'Solid_Calc':Solid_Calc, 'm_GGO_Calc':m_GGO_Calc}
 
+    def getOtherKeys(self):
+        return self._otherDict
+
     def getMaligScore(self):
         return float(self._maligScore)
     def getDetScore(self):
@@ -87,15 +100,39 @@ class Nodule(object):
         return self._Verified
     def getMatch(self):
         return self._MatchPair
-
+    def getAveHU(self):
+        return self._AveHU
+    def getMaxDiameter(self):
+        return self._MaxDiameter
+    def getAveDiameter(self):
+        return self._AveDiameter
+    def getVolume(self):
+        return self._Volume
 # VerifiedNodule class is used for storing the info of each verified nodules
 class VerifiedNodule(object):
-    def __init__(self, object):
+    def __init__(self, object, otherskeys):
         self._node = object
-        self._label = object['lablelIndex']
-        self._Center = [object['Center0'], object['Center1'], object['Center2']]
+        if 'labelIndex' in object:
+            self._label = object['labelIndex']
+        elif 'lablelIndex' in object:
+            self._label = object['lablelIndex']
+        else:
+            print('Index key Error')
+
+        if 'Center0' in object:
+            self._Center = [object['Center0'], object['Center1'], object['Center2']]
+        elif 'CenterX' in object:
+            self._Center = [object['CenterX'], object['CenterY'], object['CenterZ']]
+        else:
+            print('No Center for VerifiedNodule', self._label)
         self._MaligFlag = object['Malign']
         self._NoduleFlag = object['True']
+
+        self._otherKeys = otherskeys
+        self._otherDict = {}
+        for k in self._otherKeys:
+            self._otherDict[k] = object[k]
+
         self._TypeDic = {'Solid':object['Solid'], 'p_GGO':object['GGO'],'m_GGO':object['Mixed'],'Calc':object['Calc']}
         Solid, p_GGO, m_GGO, Calc, Solid_Calc, m_GGO_Calc = 'false', 'false', 'false', 'false', 'false', 'false'
         if self._TypeDic['Calc'] == 'false':
@@ -116,6 +153,9 @@ class VerifiedNodule(object):
         self._FinalTypeDic = {'Solid':Solid, 'p_GGO':p_GGO, 'm_GGO':m_GGO, 'Calc':Calc, \
                 'Solid_Calc':Solid_Calc, 'm_GGO_Calc':m_GGO_Calc}
 
+    def getOtherKeys(self):
+        return self._otherDict
+
     def getLabel(self):
         return int(self._label)
     def getCenter(self):
@@ -129,14 +169,24 @@ class VerifiedNodule(object):
 
 # Scan is the basic parser for json files
 class sigmaLU_Scan(object): # takes sigmaLU json result file as input
-    def __init__(self, filename, diameterScale):
+    def __init__(self, filename, diameterScale, othersKeysNodule = None, othersKeysVerify = None):
         self._filename = filename
+        self._othersKeysNodule = []
+        self._othersKeysNVerify = []
+        if othersKeysNodule != None:
+            self._othersKeysNodule = othersKeysNodule
+        if othersKeysVerify != None:
+            self._othersKeysNVerify = othersKeysVerify
         # scale for radius calculation
         self._diameterScale = diameterScale
+
+        self._otherKeysNoduleDict = {}
+        self._otherKeysVerifyDict = {}
+
         # info from detection
         self._maligDict = {}
         self._noduleDiameter = {}
-        self._obj = json.loads(open(filename).read(), object_pairs_hook = join_duplicate_keys)
+        self._obj = json.loads(open(filename, 'r', encoding='utf8').read(), object_pairs_hook = join_duplicate_keys)
         self._count = int(self._obj['Nodules']['count'])
         self._version = self._obj['Nodules']['version']
         self._centerDict = {}
@@ -154,6 +204,12 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
         self._MissedTypeDict = {}
         self._MatchPairs = {}
         self._boxShape = {}
+
+        self._MaxDiameterDict = {}
+        self._AveDiameterDict = {}
+        self._VolumeDict = {}
+        self._AveHUDict = {}
+
         # _LabelMatchPair solves the potential problems of label mismatching in nodule and verified nodule
         # in early version, the labels for missing nodules are negative
         self._LabelMatchPair = {}
@@ -168,9 +224,15 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
                 if type(noduleNode) == dict:
                     noduleNode = [noduleNode]
                 for child in noduleNode:
-                    curNode = Nodule(child, self._diameterScale)
+                    curNode = Nodule(child, self._diameterScale, self._othersKeysNodule, self._othersKeysNVerify)
                     label = curNode.getLabel()
                     malig = curNode.getMaligScore()
+
+                    self._otherKeysNoduleDict[label] = curNode.getOtherKeys()
+                    self._AveDiameterDict[label] = curNode.getAveDiameter()
+                    self._MaxDiameterDict[label] = curNode.getMaxDiameter()
+                    self._AveHUDict[label] = curNode.getAveHU()
+                    self._VolumeDict[label] = curNode.getVolume()
                     self._maligDict[label] = malig
                     self._noduleDiameter[label] = curNode.getDiameter()
                     self._centerDict[label] = curNode.getCenter()
@@ -190,6 +252,7 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
                             self._verifiedMaligFlagDict[label] = verifiedNode.getMaligFlag()
                             self._verifiedNoduleFlagDict[label] = verifiedNode.getNoduleFlag()
                             self._verifiedTypeDict[label] = verifiedNode.getTypeDic()
+                            self._otherKeysVerifyDict[label] = verifiedNode.getOtherKeys()
                         else:
                             self._MissedCenterDict[label] = verifiedNode.getCenter()
                             self._MissedMaligFlagDict[label] = verifiedNode.getMaligFlag()
@@ -202,6 +265,9 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
 
     def getVersion(self):
         return self._version
+
+    def getOtherKeysNodule(self, index, key):
+        return self._otherKeysNoduleDict[index][key]
 
     def getBoxShape(self, index):
         return self._boxShape[index]
@@ -232,6 +298,12 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
 
     def getNoduleCenter(self, index):
         return self._centerDict[index]
+
+    def getOtherKeysVerified(self, index, key):
+        if self._LabelMatchPair[index] >= 0:
+            return self._otherKeysVerifyDict[index][key]
+        else:
+            print("No Verfied Nodule for Label ", index)
 
     def getVerifiedNoduleCenter(self, index):
         if self._LabelMatchPair[index] >= 0:
@@ -281,53 +353,38 @@ class sigmaLU_Scan(object): # takes sigmaLU json result file as input
         else:
             print("No Verfied Nodule for Label ", index)
 
+    def getMaxDiameter(self, index):
+        return self._MaxDiameterDict[index]
+    def getAveDiameter(self, index):
+        return self._AveDiameterDict[index]
+    def getVolume(self, index):
+        return self._VolumeDict[index]
+    def getAveHU(self, index):
+        return self._AveHUDict[index]
+
 # TEST SECTION
 if __name__ == '__main__':
     # example for json file with verified section, missed labeled as negative
-    test = sigmaLU_Scan('ZSBenignCT01001.json', 0.7)
+    othersNodule = ['PatientCoordBases', 'Volume']
+    otherVerify = ['P_M', 'P_B']
+    test = sigmaLU_Scan('PA12.json', 1, othersNodule)
+    #test = sigmaLU_Scan('SHFK_339881_CAD_SYL.json', 1, othersNodule, otherVerify)
+    test.parseAllNodules()
     print("Number of Nodules: ", test.getCount())
-    for i in range(test.getCount()):
+    for i in test._noduleDiameter:
         print("\n")
         print("Lable", i)
-        print("Radius: ", test.getDiameter(i))
+        print("Diameter: ", test.getDiameter(i))
         print("Malign: ", test.getMalignScore(i))
         print("Det: ", test.getDetScore(i))
         print("Center: ", test.getNoduleCenter(i))
+        for o in othersNodule:
+            print(o + ': ', test.getOtherKeysNodule(i, o))
         # use getVerifiedStatus to check is the verified Nodule exists for this label
         if test.getVerifiedStatus(i):
-            if test.getMatchPair(i) >= 0:
-                print("VerifiedCenter: ", test.getVerifiedNoduleCenter(i))
-                print("VerifiedMalignFlag: ", test.getVerifiedMaligFlag(i))
-                print("VerifiedNoduleFlag: ", test.getVerifiedNoduleFlag(i))
-                print("VerifiedNoduleType: ", test.getVerifiedNoduleType(i))
-            else:
-                print("MissededCenter: ", test.getMissedNoduleCenter(i))
-                print("MissedMalignFlag: ", test.getMissedMaligFlag(i))
-                print("MissedNoduleFlag: ", test.getMissedNoduleFlag(i))
-                print("MissedNoduleType: ", test.getMissedNoduleType(i))
-
-    # example for json file without verified section
-    print("\n\n")
-    test = sigmaLU_Scan('ZSBenignCT01001_gt.json', 0.7)
-    print("Number of Nodules: ", test.getCount())
-    for i in range(test.getCount()):
-        print("\n")
-        print("Lable", i)
-        print("Radius: ", test.getDiameter(i))
-        print("Malign: ", test.getMalignScore(i))
-        print("Det: ", test.getDetScore(i))
-        print("Center: ", test.getNoduleCenter(i))
-        # use getVerifiedStatus to check is the verified Nodule exists for this label
-        if test.getVerifiedStatus(i):
-            # verified nodules
-            if test.getMatchPair(i) >= 0:
-                print("VerifiedCenter: ", test.getVerifiedNoduleCenter(i))
-                print("VerifiedMalignFlag: ", test.getVerifiedMaligFlag(i))
-                print("VerifiedNoduleFlag: ", test.getVerifiedNoduleFlag(i))
-                print("VerifiedNoduleType: ", test.getVerifiedNoduleType(i))
-            # missing nodules
-            else:
-                print("MissededCenter: ", test.getMissedNoduleCenter(i))
-                print("MissedMalignFlag: ", test.getMissedMaligFlag(i))
-                print("MissedNoduleFlag: ", test.getMissedNoduleFlag(i))
-                print("MissedNoduleType: ", test.getMissedNoduleType(i))
+            print("VerifiedCenter: ", test.getVerifiedNoduleCenter(i))
+            print("VerifiedMalignFlag: ", test.getVerifiedMaligFlag(i))
+            print("VerifiedNoduleFlag: ", test.getVerifiedNoduleFlag(i))
+            print("VerifiedNoduleType: ", test.getVerifiedNoduleType(i))
+            for o in otherVerify:
+                print(o + ': ', test.getOtherKeysVerified(i, o))

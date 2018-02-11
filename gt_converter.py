@@ -5,16 +5,20 @@ The main job of this program is to add verified info to every ground truth nodul
 apply on these files
 """
 import json
-import re
 import os
 import io
+import sys
+pyVersion = 3
 
-try:
-    to_unicode = unicode
-except NameError:
-    to_unicode = str
-PYTHONIOENCODING='utf-8'
+# for the encoding issue, use io.open on python 2
+if sys.version_info[0] == 2:
+    pyVersion = 2
+    from io import open
 
+def listdir_nohidden(path):
+    for f in os.listdir(path):
+        if not f.startswith('.'):
+            yield f
 # function to solve the problem of duplicated key ("item") in json files
 def join_duplicate_keys(ordered_pairs):
     d = {}
@@ -76,78 +80,6 @@ class DuplicateDict(dict):
 
         return generator()
 
-def pretty_json(s, step_size=4, multi_line_strings=False, advanced_parse=False, tab=False):
-    # borrowed from Chunbo, convert a long string into a json format string
-    out = ''
-    step = 0
-    in_marks = False  # Are we in speech marks? What character will indicate we are leaving it?
-    escape = False  # Is the next character escaped?
-
-    if advanced_parse:
-        # \x1D (group seperator) is used as a special character for the parser
-        # \0x1D has the same effect as a quote ('") but will not be ouputted
-        # Can be used for special formatting cases to stop text being processed by the parser
-        s = re.sub(r'datetime\(([^)]*)\)', r'datetime(\x1D\g<1>\x1D)', s)
-        s = s.replace('\\x1D', chr(0X1D))  # Replace the \x1D with the single 1D character
-
-    if tab:
-        step_char = '\t'
-        step_size = 1  # Only 1 tab per step
-    else:
-        step_char = ' '
-    for c in s.decode('utf-8'):
-
-        if step < 0:
-            step = 0
-
-        if escape:
-            # This character is escaped so output it without looking at it
-            escape = False
-            out += c
-        elif c in ['\\']:
-            # Escape the next character
-            escape = True
-            out += c
-        elif in_marks:
-            # We are in speech marks
-            if c == in_marks or (not multi_line_strings and c in ['', '\r']):
-                # but we just got to the end of them
-                in_marks = False
-            if c not in ["\x1D"]:
-                out += c
-        elif c in ['"', "'", "\x1D"]:
-            # Enter speech marks
-            in_marks = c
-            if c not in ["\x1D"]:
-                out += c
-        elif c in ['{', '[']:
-            # Increase step and add new line
-            step += step_size
-            out += c
-            out += ''
-            out += step_char * step
-        elif c in ['}', ']']:
-            # Decrease step and add new line
-            step -= step_size
-            out += ''
-            out += step_char * step
-            out += c
-        elif c in [':']:
-            # Follow with a space
-            out += c
-            out += ' '
-        elif c in [',']:
-            # Follow with a new line
-            out += c
-            out += ''
-            out += step_char * step
-        elif c in [' ', '', '\r', '\t', '\x1D']:
-            #Ignore this character
-            pass
-        else:
-            # Character of no special interest, so just output it as it is
-            out += c
-    return out
 
 class AddVerifiedNodule:
     def __init__(self, original_path, target_path, original_extension, target_extension):
@@ -161,57 +93,53 @@ class AddVerifiedNodule:
             os.mkdir(self.target_path)
 
         # a list of original json files
-        self.original_files = os.listdir(original_path)
+        self.original_files = listdir_nohidden(original_path)
 
     def addVerified(self):
         for original_file in self.original_files:
             # read in the original json file
             # original_filename = self.original_path + self.filename + self.original_extension
+            # print self.original_path + original_file
+            print (self.original_path + original_file)
             original_json = json.loads(open(self.original_path + original_file).read(), object_pairs_hook=join_duplicate_keys)
 
             # if it is a positive nodule, it won't have verified info, add verified info for the ground truth so that we
             # can apply general json parser on the ground truth
-            for i in range(len(original_json["Nodules"]["item"])):
+            i = 0
+            while i < len(original_json["Nodules"]["item"]):
+                # print i
                 if "VerifiedNodule" not in original_json["Nodules"]["item"][i]:
+                    # print i
                     original_json["Nodules"]["item"][i]["VerifiedNodule"] = {"labelIndex": "0", "Center0": "0",
                                                                              "Center1": "0", "Center1": "0", "Center2":
-                                                                             "0", "True": "True", "Malign": "false",
-                                                                             "Solid": "True", "GGO": "false", "Mixed":
-                                                                             "false" , "Calc": "false"}
-
+                                                                             "0", "True": "true", "Malign": "false",
+                                                                             "Solid": "true", "GGO": "false", "Mixed":
+                                                                                 "false" , "Calc": "false"}
+                    i += 1
+                else:
+                    original_json["Nodules"]["item"].pop(i)
+            count = len(original_json["Nodules"]["item"])
+            original_json["Nodules"]["count"] = count
             # output to new json files
             target_filename = self.target_path + original_file[:-5] + self.target_extension
             # target_json = pretty_json(json.dumps(DuplicateDict(original_json), ensure_ascii=False).encode('utf-8'))
             with io.open(target_filename, 'w', encoding='utf8') as outfile:
                 str_ = json.dumps(DuplicateDict(original_json), indent=4, sort_keys=True, separators=(',', ': '), ensure_ascii=False)
-                outfile.write(to_unicode(str_))
-
+                outfile.write(str_)
+                outfile.close()
+# json_str = pretty_json(json.dumps(DuplicateDict(json_reproduce), ensure_ascii=False).encode('utf-8'))
+#             file_reproduce = self._path_reproduce + name + self._postfix_target
+#             with open(file_reproduce, 'w', encoding='utf-8') as f:
+#                 f.write(json_str)
+#                 f.close()
+#             print(name + ' Done')
 
 if __name__ == "__main__":
-    original_path = ".\\label\\"
-    target_path = ".\\label\\"
+    original_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label/"
+    target_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label_new/"
     original_extension = ".json"
     target_extension = "_new.json"
     test = AddVerifiedNodule(original_path, target_path, original_extension, target_extension)
     test.addVerified()
-# # read in the original ground truth file
-# original_file = json.loads(open(filename).read(), object_pairs_hook=join_duplicate_keys)
-#
-# # output to new json files
-# json_str = pretty_json(json.dumps(DuplicateDict(json_reproduce), ensure_ascii=False).encode('utf-8'))
-# file_reproduce = self._path_reproduce + name + self._postfix_target
-# with open(file_reproduce, 'w', encoding='utf-8') as f:
-#     f.write(json_str)
-#     f.close()
-# print(name + ' Done')
-#
-# suffix = ".json"
-# filename = "gt" + suffix
-# jsonfile = json.loads(open(filename).read(), object_pairs_hook=join_duplicate_keys)
-#
-#
-#
-# with io.open("new1" + ".json", 'w', encoding='utf8') as outfile:
-#     str_ = json.dumps(jsonfile, indent=4, sort_keys=True, separators=(',', ': '), ensure_ascii=False)
-#     outfile.write(to_unicode(str_))
+
 
