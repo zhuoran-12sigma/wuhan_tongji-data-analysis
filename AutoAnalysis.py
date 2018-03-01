@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from gt_converter import AddVerifiedNodule
 import sys
 from sigmaLU_jsonScan import sigmaLU_Scan
@@ -5,7 +6,10 @@ import numpy
 import csv
 import os
 
-
+v = sys.version_info.major
+# if v == 2:
+#     from io import open
+    # from io import BytesIO
 platform = sys.platform
 if platform.startswith('win'):
     slash = '\\'
@@ -84,12 +88,18 @@ class AutoMatch:
                             # write in to the log
                                 if not os.path.isfile(curr_log_name):
                                     with open(curr_log_name, 'w') as f:
-                                        f.write("pid" + "\t" + "gt" + "\t" + "detection" + "\n")
-                                        f.write(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n")
+                                        if v == 2:
+                                            f.write(unicode("pid" + "\t" + "gt" + "\t" + "detection" + "\n"))
+                                            f.write(unicode(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n"))
+                                        else:
+                                            f.write("pid" + "\t" + "gt" + "\t" + "detection" + "\n")
+                                            f.write(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n")
                                 else:
-                                    with open(curr_log_name, 'r+') as f:
-                                        f.read()
-                                        f.write(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n")
+                                    with open(curr_log_name, 'a') as f:
+                                        if v == 2:
+                                            f.write(unicode(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n"))
+                                        else:
+                                            f.write(name + "\t" + str(int(dg)) + "\t" + str(int(dd)) + "\n")
                                 f.close()
                 # calculate TP and FP, write to the CSV file
                 # print ("GT match pair")
@@ -97,20 +107,32 @@ class AutoMatch:
                 csv_filename = self._result_path + name + ".csv"
                 # write the header
                 if not os.path.isfile(csv_filename):
-                    headers = ["序列号"]
+                    headers = [u"序列号"]
                     for i in range(gt.getCount()):
-                        headers.append("真结节#" + str(i))
-                        headers.extend(["最大直径", "平均直径", "体积", "平均密度"])
-                    headers.extend(["找到真性结节个数", "假阳性结节个数"])
-                    true_row = ("金标准",)
+                        headers.append(u"真结节#" + str(i))
+                        headers.extend([u"最大直径", u"平均直径", u"体积", u"平均密度"])
+                    headers.extend([u"找到真性结节个数", u"假阳性结节个数"])
+                    true_row = (u"金标准",)
 
                     for x in gt._MatchPairs:
                         true_row += ("",gt.getMaxDiameter(x), gt.getAveDiameter(x), gt.getVolume(x), gt.getAveHU(x))
                     true_row += ("", "")
-                    with open(csv_filename, "w", newline='', encoding='utf-8-sig') as f:
+                    if v == 2:
+                        mode = "wb"
+                    else:
+                        mode = "w"
+                    with open(csv_filename, mode) as f:
+                        if v == 2:
+                            f.write(u'\ufeff'.encode('utf8'))
                         f_csv = csv.writer(f)
-                        f_csv.writerow(headers)
-                        f_csv.writerow(true_row)
+                        if v == 2:
+                            # headers = unicode(headers).encode('utf-8')
+                            # true_row = unicode(true_row).encode('utf-8')
+                            for a in [headers, true_row]:
+                                f_csv.writerow([unicode(aa).encode('utf8') for aa in a])
+                        else:
+                            f_csv.writerow(headers)
+                            f_csv.writerow(true_row)
                         f.close()
                 row = (scan,)
                 # true_row = ("金标准",)
@@ -125,10 +147,18 @@ class AutoMatch:
                 FP_num += de.getCount() - TP_num
                 sensitivity[scan]= [TP_num, FP_num]
                 row += (TP_num, FP_num)
-                with open(csv_filename, 'r+') as f:
-                    f.read()
+                if v == 2:
+                    mode = "ab"
+                else:
+                    mode = "a"
+                with open(csv_filename, mode) as f:
+                    if v == 2:
+                        f.write(u'\ufeff'.encode('utf8'))
                     f_csv = csv.writer(f)
-                    f_csv.writerow(row)
+                    if v == 2:
+                        f_csv.writerow([unicode(aa).encode('utf8') for aa in row])
+                    else:
+                        f_csv.writerow(row)
                     f.close()
 
         self._sensitivity = sensitivity
@@ -137,8 +167,8 @@ class AutoMatch:
     def write_sen(self):
         TP_ave = 0
         FP_ave = 0
-        row_TP = ("找到真结节个数",)
-        row_FP = ("假阳性结节个数",)
+        row_TP = (u"找到真结节个数",)
+        row_FP = (u"假阳性结节个数",)
         headers = [" "]
         for item in self._sensitivity:
             TP_ave += self._sensitivity[item][0]
@@ -152,41 +182,78 @@ class AutoMatch:
         row_FP += (FP_ave,)
         headers.append("Average")
 
-        with open(self._result_path + "敏感性.csv", "w", newline='', encoding='utf-8-sig') as f:
+        if v == 2:
+            mode = "wb"
+        else:
+            mode = "w"
+        with open(self._result_path + "sensitivity.csv", mode) as f:
+            if v == 2:
+                f.write(u'\ufeff'.encode('utf8'))
             f_csv = csv.writer(f)
-            f_csv.writerow(headers)
-            f_csv.writerow(row_TP)
-            f_csv.writerow(row_FP)
+            if v == 2:
+                # headers = unicode(headers).encode('utf-8')
+                # row_TP = unicode(row_TP).encode('utf-8')
+                # row_FP = unicode(row_FP).encode('utf-8')
+                for a in [headers, row_TP, row_FP]:
+                    f_csv.writerow([unicode(aa).encode('utf8') for aa in a])
+            else:
+                f_csv.writerow(headers)
+                f_csv.writerow(row_TP)
+                f_csv.writerow(row_FP)
             f.close()
 
     # def write_con(self, name):
 
 if __name__ == "__main__":
 
-    str_input = input("请输入金标准路径：")
+
     # add verified nodule to ground truth and delete non_GT
     # gt_path_old = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label/"
     # if platform.startswith('win'):
 
-    gt_path_old = str_input
-    str_input = input("请输入转化后金标准路径：")
-    # gt_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label_new/"
-    gt_path = str_input
 
-    gt_postfix_old = ".json"
-    gt_postfix = "_gt.json"
-    myGT = AddVerifiedNodule(gt_path_old, gt_path, gt_postfix_old, gt_postfix)
-    myGT.addVerified()
+    if v == 2:
+        str_input = raw_input("请输入金标准路径：".decode("utf-8").encode("gb2312"))
+        gt_path_old = str_input
+        str_input = raw_input("请输入转化后金标准路径：".decode("utf-8").encode("gb2312"))
+        # gt_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label_new/"
+        gt_path = str_input
 
-    # match ground truth and detect file
-    str_input = input("请输入CAD结果路径：")
-    detect_path = str_input
-    # detect_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/detection/"
-    str_input = input("请输入日志路径：")
-    log_path= str_input
-    # log_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/log/"
-    str_input = input("请输入结果分析路径：")
-    result_path = str_input
+        gt_postfix_old = ".json"
+        gt_postfix = "_gt.json"
+        myGT = AddVerifiedNodule(gt_path_old, gt_path, gt_postfix_old, gt_postfix)
+        myGT.addVerified()
+
+        # match ground truth and detect file
+        str_input = raw_input("请输入CAD结果路径：".decode("utf-8").encode("gb2312"))
+        detect_path = str_input
+        # detect_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/detection/"
+        str_input = raw_input("请输入日志路径：".decode("utf-8").encode("gb2312"))
+        log_path= str_input
+        # log_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/log/"
+        str_input = raw_input("请输入结果分析路径：".decode("utf-8").encode("gb2312"))
+        result_path = str_input
+    else:
+        str_input = input("请输入金标准路径：".decode("utf-8").encode("gb2312"))
+        gt_path_old = str_input
+        str_input = input("请输入转化后金标准路径：".decode("utf-8").encode("gb2312"))
+        # gt_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/label_new/"
+        gt_path = str_input
+
+        gt_postfix_old = ".json"
+        gt_postfix = "_gt.json"
+        myGT = AddVerifiedNodule(gt_path_old, gt_path, gt_postfix_old, gt_postfix)
+        myGT.addVerified()
+
+        # match ground truth and detect file
+        str_input = input("请输入CAD结果路径：".decode("utf-8").encode("gb2312"))
+        detect_path = str_input
+        # detect_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/detection/"
+        str_input = input("请输入日志路径：".decode("utf-8").encode("gb2312"))
+        log_path= str_input
+        # log_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/log/"
+        str_input = input("请输入结果分析路径：".decode("utf-8").encode("gb2312"))
+        result_path = str_input
     # result_path = "/Users/zhuoran/wuhan_tongji-data-analysis/data/result/"
     detect_postfix = ".json"
     myMatch = AutoMatch(gt_path, detect_path, log_path, result_path, gt_postfix, detect_postfix)
